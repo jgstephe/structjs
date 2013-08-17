@@ -1,0 +1,15 @@
+{
+  "name": "structjs",
+  "author": {
+    "name": "Markus Ast",
+    "email": "npm.m@rkusa.st"
+  },
+  "version": "0.0.0",
+  "main": "./lib/struct",
+  "homepage": "https://github.com/rkusa/structjs",
+  "bugs": "https://github.com/rkusa/structjs/issues",
+  "repository" : {
+    "type" : "git",
+    "url" : "git://github.com/rkusa/structjs.git"
+  }
+}
