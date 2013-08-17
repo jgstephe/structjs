@@ -6,10 +6,20 @@
   },
   "version": "0.0.0",
   "main": "./lib/struct",
+  "scripts": {
+    "test": "mocha"
+  },
   "homepage": "https://github.com/rkusa/structjs",
+  "devDependencies": {
+    "mocha": "1.10.x",
+    "should": "1.2.x"
+  },
   "bugs": "https://github.com/rkusa/structjs/issues",
   "repository" : {
     "type" : "git",
     "url" : "git://github.com/rkusa/structjs.git"
+  },
+  "engines": {
+    "node": ">=0.8"
   }
 }
