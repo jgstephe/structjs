@@ -27,7 +27,6 @@ suite('String - Write')
 
 var packed
 before(function() {
-  t.offset = 0xc
   packed = utils.toBuffer(t.pack())
 })
 
@@ -36,7 +35,7 @@ test('String', function() {
 })
 
 test('Offset', function() {
-  packed.readUInt8(7).should.eql(0xc)
+  packed.readUInt8(7).should.eql(8)
 })
 
 test('Storage', function() {
