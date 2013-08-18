@@ -19,6 +19,26 @@ var t = new Test
 var buffer = fs.readFileSync(__dirname + '/data/string.test')
 t.unpack(new DataView(utils.toArrayBuffer(buffer)))
 
-test('String',   function() { t.str.should.eql('Offset:') })
-test('Offset',   function() { t.offset.should.eql(0xe)    })
-test('External', function() { t.result.should.eql('✓')    })
+test('String',  function() { t.str.should.eql('Offset:') })
+test('Offset',  function() { t.offset.should.eql(0xe)    })
+test('Storage', function() { t.result.should.eql('✓')    })
+
+suite('String - Write')
+
+var packed
+before(function() {
+  t.offset = 0xc
+  packed = utils.toBuffer(t.pack())
+})
+
+test('String', function() {
+  packed.toString('utf-8', 0, 7).should.eql('Offset:')
+})
+
+test('Offset', function() {
+  packed.readUInt8(7).should.eql(0xc)
+})
+
+test('Storage', function() {
+  packed.toString('utf-16le', 8, 10).should.eql('✓')
+})
