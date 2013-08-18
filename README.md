@@ -1,10 +1,29 @@
 # structjs
+
+**Structjs** allows mapping of contiguously allocated binary data to JavaScript objects for both Node.js and the Browser.
+
 [![Build Status](https://secure.travis-ci.org/rkusa/structjs.png)](http://travis-ci.org/rkusa/structjs)
 
 ```json
 { "name": "structjs",
-  "version": "0.0.0" }
+  "version": "0.1.0" }
 ```
+
+### Run Tests
+
+```bash
+npm test # node
+open test/browser/index.html # browser
+```
+
+### Compatibility
+
+Works with Node.js 0.10.x and current versions of Chrome, Firefox, Opera Next and Safari.  
+Node 0.8.x and IE10 are going to work once I replaced `ArrayBuffer#slice` calls with something else ...
+
+## Usage
+
+Coming soon ...
 
 ## MIT License
 Copyright (c) 2013 Markus Ast

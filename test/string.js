@@ -1,43 +1,44 @@
-var should = require('should')
-  , fs     = require('fs')
-  , Struct = require('../lib/struct')
-  , utils  = require('./utils')
+var Struct = Struct || require('../lib/struct')
+  , utils = utils || require('./utils')
 
-suite('String - Read')
+suite('String', function() {
+  var data = '4f 66 66 73 65 74 3a 0e 0d 00 00 00 0e 00 13 27'
 
-var Test = new Struct({
-  str:    Struct.String(7),
-  offset: Struct.Uint8,
-  result: Struct.String({
-    length: 1, size: 2, littleEndian: true,
-    storage: Struct.Ref('storage')
-  }),
-  storage: Struct.Storage({ offset: Struct.Ref('offset') })
-})
+  var Test = new Struct({
+    str:    Struct.String(7),
+    offset: Struct.Uint8,
+    result: Struct.String({
+      length: 1, size: 2, littleEndian: true,
+      storage: Struct.Ref('storage')
+    }),
+    storage: Struct.Storage({ offset: Struct.Ref('offset') })
+  })
 
-var t = new Test
-var buffer = fs.readFileSync(__dirname + '/data/string.test')
-t.unpack(new DataView(utils.toArrayBuffer(buffer)))
+  var t = new Test, input = utils.readData(data)
+  t.unpack(input)
+  
+  suite('Read', function() {
+    test('String',  function() { t.str.should.eql('Offset:') })
+    test('Offset',  function() { t.offset.should.eql(0xe)    })
+    test('Storage', function() { t.result.should.eql('✓')    })
+  })
+  
+  suite('Write', function() {
+    var packed
+    setup(function() {
+      packed = new DataView(t.pack())
+    })
 
-test('String',  function() { t.str.should.eql('Offset:') })
-test('Offset',  function() { t.offset.should.eql(0xe)    })
-test('Storage', function() { t.result.should.eql('✓')    })
+    test('String', function() {
+      utils.readString(packed, 0, 7).should.eql('Offset:')
+    })
 
-suite('String - Write')
+    test('Offset', function() {
+      packed.getUint8(7).should.eql(8)
+    })
 
-var packed
-before(function() {
-  packed = utils.toBuffer(t.pack())
-})
-
-test('String', function() {
-  packed.toString('utf-8', 0, 7).should.eql('Offset:')
-})
-
-test('Offset', function() {
-  packed.readUInt8(7).should.eql(8)
-})
-
-test('Storage', function() {
-  packed.toString('utf-16le', 8, 10).should.eql('✓')
+    test('Storage', function() {
+      String.fromCharCode(packed.getUint16(8, true)).should.eql('✓')
+    })
+  })
 })
