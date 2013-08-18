@@ -32,9 +32,8 @@ test('Float64', function() { t.Float64.should.eql(0xdeadbeefcafebabe) })
 
 suite('Number - Write')
 
-var packed = utils.toBuffer(t.pack())
-
 test('checksum should be equal', function() {
+  var packed = utils.toBuffer(t.pack())
   crypto.createHash('md5').update(buffer).digest('base64')
     .should.eql(
       crypto.createHash('md5').update(packed).digest('base64')

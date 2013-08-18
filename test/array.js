@@ -1,9 +1,10 @@
 var should = require('should')
   , fs     = require('fs')
+  , crypto = require('crypto')
   , Struct = require('../lib/struct')
   , utils  = require('./utils')
 
-suite('Array')
+suite('Array - Read')
 
 var Test = new Struct({
   nums:    Struct.Array(Struct.Uint8, 4),
@@ -47,4 +48,14 @@ test('Struct Array', function() {
     c.should.equal('c')
     n.should.equal(0x63)
   }
+})
+
+suite('Array - Write')
+
+test('checksum should be equal', function() {
+  var packed = utils.toBuffer(t.pack())
+  crypto.createHash('md5').update(buffer).digest('base64')
+    .should.eql(
+      crypto.createHash('md5').update(packed).digest('base64')
+    )
 })

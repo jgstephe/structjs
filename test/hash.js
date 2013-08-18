@@ -1,5 +1,6 @@
 var should = require('should')
   , fs     = require('fs')
+  , crypto = require('crypto')
   , Struct = require('../lib/struct')
   , utils  = require('./utils')
 
@@ -34,4 +35,14 @@ test('Hash Array', function() {
     c.should.equal('c')
     n.should.equal(0x63)
   }
+})
+
+suite('Hash - Write')
+
+test('checksum should be equal', function() {
+  var packed = utils.toBuffer(t.pack())
+  crypto.createHash('md5').update(buffer).digest('base64')
+    .should.eql(
+      crypto.createHash('md5').update(packed).digest('base64')
+    )
 })
