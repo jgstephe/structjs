@@ -3,17 +3,16 @@ var should = require('should')
   , Struct = require('../lib/struct')
   , utils  = require('./utils')
 
-suite('String')
+suite('String - Read')
 
 var Test = new Struct({
   str:    Struct.String(7),
   offset: Struct.Uint8,
   result: Struct.String({
-    length: 1, external: true, size: 2, littleEndian: true,
-    offset: function() {
-      return this.offset
-    }
-  })
+    length: 1, size: 2, littleEndian: true,
+    storage: Struct.Ref('storage')
+  }),
+  storage: Struct.Storage({ offset: Struct.Ref('offset') })
 })
 
 var t = new Test
