@@ -10,105 +10,85 @@ var StructNumber    = require('./types/number')
 var Struct = module.exports = function(definition) {
   var StructType = function() {
     Object.defineProperties(this, {
-      _view:   { writable: true, value: null },
-      _offset: { writable: true, value: null }
+      _view:       { writable: true, value: null },
+      _offset:     { writable: true, value: null },
+      _definition: { writable: false, value: definition}
     })
   }
   
+  Object.defineProperty(StructType, '_definition', {
+    writable: false, value: definition
+  })
+
   var extensions = []
   StructType.extendIf = function(condition, extension) {
     extensions.push({ condition: condition, extension: extension })
     return this
   }
-  
+
   StructType.prototype.unpack = function(view, offset) {
     if (!(view instanceof DataView))
       throw new Error('DataView expected')
-    
+  
     this._view   = view
     this._offset = offset
 
     if (!offset) offset = 0
-    
+  
     var self = this
     function apply(definition) {
       for (var prop in definition) {
         var type = definition[prop]
-        type.parent = self
-        if (type instanceof StructStorage) self[prop] = type
-      }
-      for (var prop in definition) {
-        var type = definition[prop]
-        if (type instanceof StructStorage) continue
-        if (type.storage) type.storage.contents.push({
-          type: type, struct: self, prop: prop
-        })
+        if (type.storage) continue
         self[prop] = type.read(view, offset)
-        if (!type.external) offset += type.$length * type.$size
+        if (self[prop] === undefined) delete self[prop]
+        if (!type.external)
+          offset += type.lengthFor(self) * type.sizeFor(self)
       }
     }
+    apply.parent = this
     apply(definition)
-  
+
     extensions.forEach(function(extension) {
       if (!extension.condition.call(self)) return
       apply(extension.extension)
     })
-    
+  
     if (typeof this.$initialize === 'function')
       this.$initialize()
-    
+  
     return this
   }
 
   StructType.prototype.pack = function(view, offset) {
-    if (!view) view = new DataView(new ArrayBuffer(this.$length * this.$size))
+    // console.log('Size: %d, Length: %d', this.sizeFor(this), this.lengthFor(this))
+    if (!view) view = new DataView(new ArrayBuffer(this.lengthFor(this) * this.sizeFor(this)))
     if (!offset) offset = 0
 
     var self = this
     function apply(definition) {
       var start = offset
-      // write storage areas first
-      for (var prop in definition) {
-        var type = definition[prop]
-        if (type.external || type.storage) continue
-        if (type instanceof StructStorage) {
-          type.$offset = offset
-          !function() {
-            var offset = 0
-            type.contents.forEach(function(content) {
-              var type = content.type
-              type.parent = content.struct
-              type.$offset = offset
-              type.write(view, offset, content.struct[content.prop])
-              offset += type.$length * type.$size
-            })
-          }()
-        }
-        offset += type.$length * type.$size
-      }
-      // write everything other than StructNumber second
       offset = start
       for (var prop in definition) {
         var type = definition[prop]
-        if (type.external || type.storage || type instanceof StructStorage)
-          continue
+        if (type.external || type.storage) continue
         if (!(type instanceof StructNumber))
           type.write(view, offset, self[prop])
-        offset += type.$length * type.$size
+        offset += type.lengthFor(self) * type.sizeFor(self)
       }
       // write StructNumber last
       offset = start
       for (var prop in definition) {
         var type = definition[prop]
-        if (type.external || type.storage)
-          continue
+        if (type.external || type.storage) continue
         if (type instanceof StructNumber)
           type.write(view, offset, self[prop])
-        offset += type.$length * type.$size
+        offset += type.lengthFor(self) * type.sizeFor(self)
       }
     }
+    apply.parent = this
     apply(definition)
-  
+
     extensions.forEach(function(extension) {
       if (!extension.condition.call(self)) return
       apply(extension.extension)
@@ -116,28 +96,25 @@ var Struct = module.exports = function(definition) {
 
     return view.buffer.slice(0, offset)
   }
-  
-  Object.defineProperty(StructType.prototype, '$length', {
-    enumerable: true,
-    value: 1
-  })
-  
-  Object.defineProperty(StructType.prototype, '$size', {
-    enumerable: true,
-    get: function() {
-      return Object.keys(definition)
-        .filter(function(prop) {
-          return !definition[prop].external && !definition[prop].storage
-        })
-        .map(function(prop) {
-          return definition[prop].$length * definition[prop].$size
-        })
-        .reduce(function(lhs, rhs) {
-          return lhs + rhs
-        }, 0)
-    }
-  })
-  
+
+  StructType.prototype.lengthFor = function() {
+    return 1
+  }
+
+  StructType.prototype.sizeFor = function() {
+    var self = this
+    return Object.keys(definition)
+      .filter(function(prop) {
+        return !definition[prop].external && !definition[prop].storage
+      })
+      .map(function(prop) {
+        return definition[prop].lengthFor(self) * definition[prop].sizeFor(self)
+      })
+      .reduce(function(lhs, rhs) {
+        return lhs + rhs
+      }, 0)
+  }
+
   return StructType
 }
 
@@ -166,8 +143,8 @@ Struct.Reference = Struct.Ref = function(prop) {
   return new StructReference(prop)
 }
 
-Struct.Storage = function(opts) {
-  return new StructStorage(opts)
+Struct.Storage = function(path, opts) {
+  return new StructStorage(path, opts)
 }
 },{"./types/array":2,"./types/hash":3,"./types/number":4,"./types/reference":5,"./types/storage":6,"./types/string":7}],2:[function(require,module,exports){
 var utils = require('../utils')
@@ -177,42 +154,46 @@ var StructArray = module.exports = function(struct, length) {
   Object.defineProperties(this, {
     _length: { value: length, writable: true }
   })
-  this.$size = (struct.$size || struct.prototype.$size) * (struct.$length || struct.prototype.$length)
 }
 
-StructArray.prototype.read = function(buffer, offset) {
-  var arr = []
-  for (var i = 0, len = this.$length; i < len; ++i) {
+StructArray.prototype.read = function read(buffer, offset) {
+  var arr = [], parent = read.caller.parent
+  for (var i = 0, len = this.lengthFor(parent); i < len; ++i) {
     var child
     if (typeof this.struct === 'function') {
       child = new this.struct
-      child.parent = this.parent
       child.unpack(buffer, offset)
-      offset += child.$length * child.$size
+      offset += child.lengthFor(parent) * child.sizeFor(parent)
     } else {
       child = this.struct.read(buffer, offset)
-      offset += this.struct.$length * this.struct.$size
+      offset += this.struct.lengthFor(parent) * this.struct.sizeFor(parent)
     }
     arr.push(child)
   }
   return arr
 }
 
-StructArray.prototype.write = function(buffer, offset, arr) {
-  this.$length = arr.length
-  for (var i = 0, len = this.$length; i < len; ++i) {
+StructArray.prototype.write = function write(buffer, offset, arr) {
+  var parent = write.caller.parent
+  this.setLength(arr.length, parent)
+  for (var i = 0, len = this.lengthFor(parent); i < len; ++i) {
     var child = arr[i]
     if (typeof this.struct === 'function') {
       child.pack(buffer, offset)
-      offset += child.$length * child.$size
+      offset += child.lengthFor(parent) * child.sizeFor(parent)
     } else {
       this.struct.write(buffer, offset, child)
-      offset += this.struct.$length * this.struct.$size
+      offset += this.struct.lengthFor(parent) * this.struct.sizeFor(parent)
     }
   }
 }
 
-utils.getter(StructArray.prototype, '_length', '$length')
+StructArray.prototype.sizeFor = function(parent) {
+  return (this.struct.sizeFor ? this.struct.sizeFor(parent) : this.struct.prototype.sizeFor(parent))
+       * (this.struct.lengthFor ? this.struct.lengthFor(parent) : this.struct.prototype.lengthFor(parent))
+}
+
+utils.methodsFor(StructArray.prototype, '_length', 'lengthFor', 'setLength')
 },{"../utils":8}],3:[function(require,module,exports){
 var utils = require('../utils')
 
@@ -222,33 +203,35 @@ var StructHash = module.exports = function(struct, prop, length) {
   Object.defineProperties(this, {
     _length: { value: length, writable: true }
   })
-  this.$size = (struct.$size || struct.prototype.$size) * (struct.$length || struct.prototype.$length)
 }
 
-StructHash.prototype.read = function(buffer, offset) {
-  var hash = {}
-  for (var i = 0, len =  this.$length; i < len; ++i) {
+StructHash.prototype.read = function read(buffer, offset) {
+  var hash = {}, parent = read.caller.parent
+  for (var i = 0, len = this.lengthFor(parent); i < len; ++i) {
     var child = new this.struct
-    child.parent = this.parent
     child.unpack(buffer, offset)
-    offset += child.$length * child.$size
+    offset += child.lengthFor(parent) * child.sizeFor(parent)
     hash[child[this.prop]] = child
   }
   return hash
 }
 
-StructHash.prototype.write = function(buffer, offset, hash) {
-  var keys = Object.keys(hash)
-  this.$length = keys.length
-  for (var i = 0, len =  this.$length; i < len; ++i) {
+StructHash.prototype.write = function write(buffer, offset, hash) {
+  var keys = Object.keys(hash), parent = write.caller.parent
+  this.setLength(keys.length, parent)
+  for (var i = 0, len =  this.lengthFor(parent); i < len; ++i) {
     var child = hash[keys[i]]
     child.pack(buffer, offset)
-    offset += child.$length * child.$size
+    offset += child.lengthFor(parent) * child.sizeFor(parent)
   }
 }
 
+StructHash.prototype.sizeFor = function(parent) {
+   return (this.struct.sizeFor ? this.struct.sizeFor(parent) : this.struct.prototype.sizeFor(parent))
+        * (this.struct.lengthFor ? this.struct.lengthFor(parent) : this.struct.prototype.lengthFor(parent))
+}
 
-utils.getter(StructHash.prototype, '_length', '$length')
+utils.methodsFor(StructHash.prototype, '_length', 'lengthFor', 'setLength')
 },{"../utils":8}],4:[function(require,module,exports){
 var utils = require('../utils')
 
@@ -269,67 +252,108 @@ StructNumber.prototype.from = function(offset) {
   })
 }
 
-StructNumber.prototype.read = function(buffer, offset) {
-  return buffer[this.methods.read](this.external ? this.$offset : offset)
+StructNumber.prototype.read = function read(buffer, offset) {
+  var parent = read.caller.parent
+  return buffer[this.methods.read](this.external ? this.offsetFor(parent) : offset)
 }
 
-StructNumber.prototype.write = function(buffer, offset, value) {
-  buffer[this.methods.write](this.external ? this.$offset : offset, value)
+StructNumber.prototype.write = function write(buffer, offset, value) {
+  var parent = write.caller.parent
+  buffer[this.methods.write](this.external ? this.offsetFor(parent) : offset, value)
 }
 
-utils.getter(StructNumber.prototype, '_offset', '$offset')
+StructNumber.prototype.lengthFor = function() {
+  return 1
+}
 
-Object.defineProperties(StructNumber.prototype, {
-  $length: { enumerable: true, value: 1 },
-  $size:   { enumerable: true, get: function() { return this._length } }
-})
+StructNumber.prototype.sizeFor = function() {
+  return this._length
+}
 
-
+utils.methodsFor(StructNumber.prototype, '_offset', 'offsetFor', 'setOffset')
 },{"../utils":8}],5:[function(require,module,exports){
 var StructReference = module.exports = function(prop) {
   this.prop = prop
 }
-
-StructReference.prototype.get = function(parent) {
-  if (!parent) return 0
-  var value = parent[this.prop]
-  if (value === undefined && parent.parent) return parent.parent[this.prop]
-  else return value
-}
-
-StructReference.prototype.set = function(parent, value) {
-  parent[this.prop] = value
-}
 },{}],6:[function(require,module,exports){
 var utils = require('../utils')
   , StructReference = require('./reference')
+  , StructArray     = require('./array')
 
-var StructStorage = module.exports = function(opts) {
-  if (opts instanceof StructReference)
+var StructStorage = module.exports = function(path, opts) {
+  this.path = path
+  if (opts instanceof StructReference) 
     opts = { offset: opts }
-  this.opts     = opts || {}
-  this.contents = []
-  this.$length  = 1
+  opts = opts || {}
   Object.defineProperties(this, {
-    _offset: { value: this.opts.offset, writable: true }
+    _offset: { value: opts.offset, writable: true }
   })
 }
 
-utils.getter(StructStorage.prototype, '_offset', '$offset')
+StructStorage.prototype.read = function read(view, offset) {
+  var parent = read.caller.parent
+    , shift  = this.offsetFor(parent) || offset
+  !function traverse(path, definition, target) {
+    var step = path.shift(), type = definition[step]
+    traverse.parent = target
+    if (!path.length) {
+      target[step] = type.read(view, shift)
+    } else if (type instanceof StructArray) {
+      target[step].forEach(function(target) {
+        traverse(path.concat([]), type.struct._definition, target)
+      })
+    } else {
+      traverse(path, type, target[step])
+    }
+  }(this.path.split('.'), parent._definition, parent)
+}
 
-Object.defineProperty(StructStorage.prototype, '$size', {
-  enumerable: true,
-  get: function() {
-    return this.contents.map(function(content) {
-      var type = content.type
-      type.parent = content.struct
-      return type.$length * type.$size
-    }).reduce(function(lhs, rhs) {
-      return lhs + rhs
-    }, 0)
-  }
-})
-},{"../utils":8,"./reference":5}],7:[function(require,module,exports){
+StructStorage.prototype.write = function write(view, offset) {
+  var parent = write.caller.parent
+  this.setOffset(offset, parent)
+  !function traverse(path, definition, target) {
+    var step = path.shift(), type = definition[step]
+    traverse.parent = target
+    if (!path.length) {
+      type.write(view, offset, target[step])
+    } else if (type instanceof StructArray) {
+      target[step].forEach(function(target) {
+        traverse(path.concat([]), type.struct._definition, target)
+      })
+    } else {
+      traverse(path, type, target[step])
+    }
+  }(this.path.split('.'), parent._definition, parent)
+}
+
+StructStorage.prototype.lengthFor = function() {
+  return 1
+}
+
+StructStorage.prototype.sizeFor = function(parent) {
+  var size = 0
+  !function traverse(path, definition, target) {
+    var step = path.shift(), type = definition[step]
+    traverse.parent = target
+    if (!path.length) {
+      size += type.lengthFor(target) * type.sizeFor(target)
+    } else if (type instanceof StructArray) {
+      target[step].forEach(function(target) {
+        traverse(path.concat([]), type.struct._definition, target)
+      })
+    } else {
+      traverse(path, type, target[step])
+    }
+  }(this.path.split('.'), parent._definition, parent)
+  return size
+}
+
+utils.methodsFor(StructStorage.prototype, '_offset', 'offsetFor', 'setOffset')
+
+function traversePath(argument) {
+  // body...
+}
+},{"../utils":8,"./array":2,"./reference":5}],7:[function(require,module,exports){
 var utils = require('../utils')
 
 var StructString = module.exports = function(length) {
@@ -339,53 +363,53 @@ var StructString = module.exports = function(length) {
     _size:   { value: null, writable: true }
   })
   utils.options.call(this, length)
-  this.$size = this._size || 1
 }
 
-StructString.prototype.read = function(buffer, offset) {
-  var str = []
+StructString.prototype.read = function read(buffer, offset) {
+  var str = [], storage, parent = read.caller.parent
     , shift = this.external
-      ? this.$offset
-      : (this.storage ? this.storage.$offset + this.$offset: offset)
-  for (var i = 0, len = this.$length, step = this.$size === 2 ? 2 : 1; i < len; i += step) {
-    str.push(buffer[this.$size === 2 ? 'getUint16' : 'getUint8'](shift + i, this.littleEndian))
+      ? this.offsetFor(parent)
+      : (this.storage ? offset + this.offsetFor(parent) : offset)
+  for (var i = 0, len = this.lengthFor(parent), step = this.sizeFor() === 2 ? 2 : 1; i < len; i += step) {
+    str.push(buffer[this.sizeFor() === 2 ? 'getUint16' : 'getUint8'](shift + i, this.littleEndian))
   }
   return String.fromCharCode.apply(null, str)
 }
 
-StructString.prototype.write = function(buffer, offset, value) {
-  var str = []
+StructString.prototype.write = function write(buffer, offset, value) {
+  var str = [], storage, parent = write.caller.parent
     , shift = this.external
-      ? this.$offset
-      : (this.storage ? this.storage.$offset + this.$offset: offset)
-  for (var i = 0, len = this.$length, step = this.$size === 2 ? 2 : 1; i < len; i += step) {
+      ? this.offsetFor(parent)
+      : (this.storage ? offset + this.offsetFor(parent) : offset)
+  for (var i = 0, len = this.lengthFor(parent), step = this.sizeFor() === 2 ? 2 : 1; i < len; i += step) {
     var code = value.charCodeAt(i) || 0x00
-    buffer[this.$size === 2 ? 'setUint16' : 'setUint8'](shift + i, code, this.littleEndian)
+    buffer[this.sizeFor() === 2 ? 'setUint16' : 'setUint8'](shift + i, code, this.littleEndian)
   }
 }
 
-utils.getter(StructString.prototype, '_length', '$length')
-utils.getter(StructString.prototype, '_offset', '$offset')
-utils.getter(StructString.prototype, '_storage', 'storage')
+StructString.prototype.sizeFor = function() {
+  return this._size || 1
+}
+
+utils.methodsFor(StructString.prototype, '_length',  'lengthFor', 'setLength')
+utils.methodsFor(StructString.prototype, '_offset',  'offsetFor', 'setOffset')
 
 },{"../utils":8}],8:[function(require,module,exports){
 var StructReference = require('./types/reference')
 
-exports.getter = function(obj, prop, name) {
-  Object.defineProperty(obj, name, {
-    enumerable: true,
-    get: function() {
-      if (!this[prop]) return 0
-      if (this[prop] instanceof StructReference) 
-        return this[prop].get(this.parent)
-      return this[prop]
-    },
-    set: function(newValue) {
-      if (this[prop] instanceof StructReference)
-        this[prop].set(this.parent, newValue)
-      else this[prop] = newValue
-    }
-  })
+exports.methodsFor = function(obj, prop, get, set) {
+  obj[get] = function(parent) {
+    if (!this[prop]) return 0
+    if (this[prop] instanceof StructReference)
+      return parent[this[prop].prop]
+    return this[prop]
+  }
+  if (!set) return
+  obj[set] = function(value, parent) {
+    if (this[prop] instanceof StructReference)
+      parent[this[prop].prop] = value
+    else this[prop] = value
+  }
 }
 
 exports.options = function(opts) {
@@ -394,7 +418,7 @@ exports.options = function(opts) {
     this._length      = opts.length
     this._size        = opts.size
     this.external     = opts.external === true
-    this._storage     = opts.storage
+    this.storage      = opts.storage
     this.littleEndian = opts.littleEndian === true
   } else {
     this._length  = opts

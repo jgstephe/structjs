@@ -8,15 +8,15 @@ suite('Storage', function() {
     count:        Struct.Uint8,
     stringOffset: Struct.Uint8,
     records:      Struct.Array(new Struct({
-      length:       Struct.Uint8,
-      offset:       Struct.Uint8,
-      string:       Struct.String({
-        storage:      Struct.Ref('names'),
-        offset:       Struct.Ref('offset'),
-        length:       Struct.Ref('length')
+      length:     Struct.Uint8,
+      offset:     Struct.Uint8,
+      string:     Struct.String({
+        storage:  true,
+        offset:   Struct.Ref('offset'),
+        length:   Struct.Ref('length')
       })
     }), Struct.Ref('count')),
-    names:        Struct.Storage(Struct.Ref('stringOffset'))
+    names: Struct.Storage('records.string', Struct.Ref('stringOffset'))
   })
 
   var t = new Test, input = utils.readData(data)
@@ -38,5 +38,25 @@ suite('Storage', function() {
       var packed = new DataView(t.pack())
       utils.compare(input, packed).should.be.ok
     })
+    // test('modifications should be re-mapped properly', function() {
+    //   t.records.shift()
+    //   packed = new DataView(t.pack())
+    //   console.log(t)
+    //   console.log('\n' + utils.asHex(packed))
+    //   // packed.byteLength.should.equal(3)
+    //   packed.getUint8(0).should.equal(2)
+    //   packed.getUint8(1).should.equal(8)
+    //   
+    //   // Record 0
+    //   packed.getUint8(2).should.equal(4)
+    //   packed.getUint8(3).should.equal(0)
+    //   
+    //   // Record 1
+    //   packed.getUint8(4).should.equal(2)
+    //   packed.getUint8(5).should.equal(4)
+    //   
+    //   utils.readString(packed, 6, 9).should.eql('bcde')
+    //   utils.readString(packed, 10, 12).should.eql('fg')
+    // })
   })
 })

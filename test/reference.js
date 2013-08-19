@@ -29,7 +29,7 @@ suite('Reference', function() {
       utils.compare(input, packed).should.be.ok
     })
     
-    test('Modifications should be re-mapped properly', function() {
+    test('deletions should be re-mapped properly', function() {
       t.nums.shift()
       t.nums.pop()
       packed = new DataView(t.pack())
@@ -38,5 +38,16 @@ suite('Reference', function() {
       packed.getUint8(1).should.equal(2)
       packed.getUint8(2).should.equal(3)
     })
+    
+    // test('additions should be re-mapped properly', function() {
+    //   t.nums.push(42)
+    //   packed = new DataView(t.pack())
+    //   console.log(t)
+    //   packed.byteLength.should.equal(4)
+    //   packed.getUint8(0).should.equal(3)
+    //   packed.getUint8(1).should.equal(2)
+    //   packed.getUint8(2).should.equal(3)
+    //   packed.getUint8(3).should.equal(42)
+    // })
   })
 })

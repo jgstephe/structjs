@@ -12,6 +12,7 @@
 ### Run Tests
 
 ```bash
+npm install
 npm test # node
 open test/browser/index.html # browser
 ```

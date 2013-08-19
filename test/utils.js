@@ -9,6 +9,15 @@
     return view
   }
   
+  exports.asHex = function(view) {
+    var bytes = []
+    for (var i = 0, len = view.byteLength; i < len; ++i) {
+      var byte = view.getUint8(i).toString(16)
+      bytes.push(byte.length === 1 ? '0' + byte : byte)
+    }
+    return bytes.join(' ')
+  }
+  
   exports.readString = function(view, from, to) {
     var str = []
     for (var i = from; i < to; ++i)

@@ -2,16 +2,16 @@ var Struct = Struct || require('../lib/struct')
   , utils = utils || require('./utils')
 
 suite('String', function() {
-  var data = '4f 66 66 73 65 74 3a 0e 0d 00 00 00 0e 00 13 27'
+  var data = '4f 66 66 73 65 74 3a 0e 00 00 00 00 00 00 13 27'
 
   var Test = new Struct({
     str:    Struct.String(7),
     offset: Struct.Uint8,
     result: Struct.String({
       length: 1, size: 2, littleEndian: true,
-      storage: Struct.Ref('storage')
+      storage: true
     }),
-    storage: Struct.Storage({ offset: Struct.Ref('offset') })
+    storage: Struct.Storage('result', Struct.Ref('offset'))
   })
 
   var t = new Test, input = utils.readData(data)
@@ -27,6 +27,10 @@ suite('String', function() {
     var packed
     setup(function() {
       packed = new DataView(t.pack())
+    })
+    
+    test('Size', function() {
+      packed.byteLength.should.eql(10)
     })
 
     test('String', function() {
