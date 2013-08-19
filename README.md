@@ -6,7 +6,7 @@
 
 ```json
 { "name": "structjs",
-  "version": "0.1.0" }
+  "version": "0.1.1" }
 ```
 
 ### Run Tests
@@ -19,8 +19,7 @@ open test/browser/index.html # browser
 
 ### Compatibility
 
-Works with Node.js 0.10.x and current versions of Chrome, Firefox, Opera Next and Safari.  
-Node 0.8.x and IE10 are going to work once I replaced `ArrayBuffer#slice` calls with something else ...
+Works with Node.js 0.8/0.10 and current versions of Chrome, Firefox, Opera Next, Safari and IE.
 
 ## Usage
 
