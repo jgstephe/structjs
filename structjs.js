@@ -6,8 +6,11 @@ var StructNumber    = require('./types/number')
   , StructArray     = require('./types/array')
   , StructReference = require('./types/reference')
   , StructStorage   = require('./types/storage')
+  , utils           = require('./utils')
 
-var Struct = module.exports = function(definition) {
+var Struct = module.exports = function(definition, opts) {
+  if (!opts) opts = {}
+    
   var StructType = function(values) {
     Object.defineProperties(this, {
       _view:       { writable: true, value: null },
@@ -19,10 +22,14 @@ var Struct = module.exports = function(definition) {
       if (key in definition) this[key] = values[key]
     }
   }
-  
-  Object.defineProperty(StructType, '_definition', {
-    writable: false, value: definition
+
+  Object.defineProperties(StructType, {
+    _offset:     { writable: true,  value: null },
+    _definition: { writable: false, value: definition }
   })
+  StructType.storage = opts.storage
+  StructType._offset = opts.offset
+  utils.methodsFor(StructType, '_offset',  'offsetFor', 'setOffset')
 
   var extensions = []
   StructType.extendIf = function(condition, extension) {
@@ -34,10 +41,9 @@ var Struct = module.exports = function(definition) {
     if (!(view instanceof DataView))
       throw new Error('DataView expected')
   
-    this._view   = view
-    this._offset = offset
-
     if (!offset) offset = 0
+    
+    this._view = view
   
     var self = this
     function apply(definition) {
@@ -46,6 +52,8 @@ var Struct = module.exports = function(definition) {
         definition[prop].prop = prop
         if (type.storage) continue
         self[prop] = type.read(view, offset)
+        if (typeof type.$unpacked === 'function')
+          self[prop] = type.$unpacked(self[prop])
         if (self[prop] === undefined) delete self[prop]
         if (!type.external)
           offset += type.lengthFor(self) * type.sizeFor(self)
@@ -59,14 +67,17 @@ var Struct = module.exports = function(definition) {
       apply(extension.extension)
     })
   
-    if (typeof this.$initialize === 'function')
-      this.$initialize()
+    if (typeof this.$unpacked === 'function')
+      this.$unpacked()
   
     return this
   }
 
   StructType.prototype.pack = function(view, offset) {
     // console.log('Size: %d, Length: %d', this.sizeFor(this, true), this.lengthFor(this, true))
+    if (typeof this.$packing === 'function')
+      this.$packing()
+      
     if (!view) view = new DataView(new ArrayBuffer(this.lengthFor(this, true) * this.sizeFor(this, true)))
     if (!offset) offset = 0
 
@@ -95,8 +106,11 @@ var Struct = module.exports = function(definition) {
       for (var prop in definition) {
         var type = definition[prop]
         if (type.external || type.storage) continue
+        var value = self[prop]
+        if (typeof type.$packing === 'function')
+          value = type.$packing(value)
         if (type instanceof StructNumber)
-          type.write(view, offset, self[prop])
+          type.write(view, offset, value)
         offset += type.lengthFor(self, true) * type.sizeFor(self, true)
       }
     }
@@ -108,14 +122,28 @@ var Struct = module.exports = function(definition) {
       apply(extension.extension)
     })
 
-    return view.buffer //.slice(0, offset)
+    return view.buffer
+  }
+  
+  StructType.read = function read(buffer, offset) {
+    var self = new this, parent = read.caller.parent
+      , shift = this.storage ? this.offsetFor(parent) : offset
+    self.unpack(buffer, shift)
+    return self
   }
 
-  StructType.prototype.lengthFor = function() {
+  StructType.write = function write(buffer, offset, value) {
+    var parent = write.caller.parent
+      , shift = this.storage ? offset + this.offsetFor(parent) : offset
+    this.setOffset(shift, parent)
+    value.pack(buffer, shift)
+  }
+
+  StructType.prototype.lengthFor = StructType.lengthFor = function() {
     return 1
   }
 
-  StructType.prototype.sizeFor = function(parent, writing) {
+  StructType.prototype.sizeFor = StructType.sizeFor = function(parent, writing) {
     var self = this
     return Object.keys(definition)
       .filter(function(prop) {
@@ -160,7 +188,7 @@ Struct.Reference = Struct.Ref = function(prop) {
 Struct.Storage = function(path, opts) {
   return new StructStorage(path, opts)
 }
-},{"./types/array":2,"./types/hash":3,"./types/number":4,"./types/reference":5,"./types/storage":6,"./types/string":7}],2:[function(require,module,exports){
+},{"./types/array":2,"./types/hash":3,"./types/number":4,"./types/reference":5,"./types/storage":6,"./types/string":7,"./utils":8}],2:[function(require,module,exports){
 var utils = require('../utils')
   , StructReference = require('./reference')
 
@@ -287,12 +315,13 @@ var StructNumber = module.exports = function(read, write, length) {
   utils.options.call(this, length)
 }
 
+StructNumber.prototype.with = function(opts) {
+  if (!opts.length) opts.length = this._length
+  return new StructNumber(this.methods.read, this.methods.write, opts)
+}
+
 StructNumber.prototype.from = function(offset) {
-  return new StructNumber(this.methods.read, this.methods.write, {
-    length:  this.length,
-    offset:  offset,
-    external: true
-  })
+  return this.with({ external: true, offset: offset })
 }
 
 StructNumber.prototype.read = function read(buffer, offset) {
@@ -477,6 +506,8 @@ exports.options = function(opts) {
     this._offset      = opts.offset
     this._length      = opts.length
     this._size        = opts.size
+    this.$unpacked    = opts.$unpacked
+    this.$packing     = opts.$packing
     this.external     = opts.external === true
     this.storage      = opts.storage
     this.littleEndian = opts.littleEndian === true
