@@ -88,13 +88,26 @@ suite('Storage (String)', function() {
   })
 })
 
-suite('Storage (Nested)', function() {
-  var data = '02 03 08 04 74 62 6c 31 06 74 62 6c 32'
+suite('Storage (Nested & Condition)', function() {
+  var data = '02 03 08 04 74 62 6c 31 06 74 62 6c 32 2a'
   
   var Table = new Struct({
     format: Struct.Uint8,
     name:   Struct.String(4)
   }, { storage: true, offset: Struct.Ref('offset') })
+  
+  Table.conditional(function() {
+    return this.format >= 6
+  }, {
+    value: Struct.Uint8
+  })
+  
+  Table.conditional(function() {
+    return this.format === 10
+  }, {
+    delta: Struct.Uint8
+  })
+  
   var Sub = new Struct({
     offset: Struct.Uint8,
     format: Struct.Uint8.from(Struct.Ref('offset')),
@@ -119,10 +132,12 @@ suite('Storage (Nested)', function() {
       t.subs[0].format.should.equal(4)
       t.subs[0].table.format.should.equal(4)
       t.subs[0].table.name.should.equal('tbl1')
+      t.subs[0].table.should.not.have.property('value')
       t.subs[1].offset.should.equal(8)
       t.subs[1].format.should.equal(6)
       t.subs[1].table.format.should.equal(6)
       t.subs[1].table.name.should.equal('tbl2')
+      t.subs[1].table.should.have.property('value', 42)
     })
   })
   
@@ -136,38 +151,44 @@ suite('Storage (Nested)', function() {
       t.subs.shift()
       packed = new DataView(t.pack())
     
-      packed.byteLength.should.equal(7)
+      packed.byteLength.should.equal(8)
       packed.getUint8(0).should.equal(1)
     
       // Record 0
       packed.getUint8(1).should.equal(2)
       packed.getUint8(2).should.equal(6)
       utils.readString(packed, 3, 7).should.eql('tbl2')
+      packed.getUint8(7).should.equal(42)
     })
     
     test('additions should be re-mapped properly', function() {
       t.subs.push(new Sub({ table: new Table({
         format: 10,
-        name:   'tbl3'
+        name:   'tbl3',
+        value:  44,
+        delta:  2
       })}))
       packed = new DataView(t.pack())
       
-      packed.byteLength.should.equal(13)
+      packed.byteLength.should.equal(16)
       packed.getUint8(0).should.equal(2)
     
       // Record 0
       packed.getUint8(1).should.equal(3)
       
       // Record 1
-      packed.getUint8(2).should.equal(8)
+      packed.getUint8(2).should.equal(9)
       
       // Table 0
       packed.getUint8(3).should.equal(6)
       utils.readString(packed, 4, 8).should.eql('tbl2')
+      packed.getUint8(8).should.equal(42)
       
       // Table 1  
-      packed.getUint8(8).should.equal(10)
-      utils.readString(packed, 9, 13).should.eql('tbl3')
+      packed.getUint8(9).should.equal(10)
+      utils.readString(packed, 10, 14).should.eql('tbl3')
+      packed.getUint8(14).should.equal(44)
+      packed.getUint8(15).should.equal(2)
     })
   })
 })

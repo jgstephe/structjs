@@ -21,6 +21,13 @@ var Struct = module.exports = function(definition, opts) {
     for (var key in values) {
       if (key in definition) this[key] = values[key]
     }
+    
+    var self = this
+    extensions.forEach(function(extension) {
+      for (var key in values) {
+        if (key in extension.extension) self[key] = values[key]
+      }
+    })
   }
 
   Object.defineProperties(StructType, {
@@ -32,7 +39,7 @@ var Struct = module.exports = function(definition, opts) {
   utils.methodsFor(StructType, '_offset',  'offsetFor', 'setOffset')
 
   var extensions = []
-  StructType.extendIf = function(condition, extension) {
+  StructType.conditional = function(condition, extension) {
     extensions.push({ condition: condition, extension: extension })
     return this
   }
@@ -145,16 +152,24 @@ var Struct = module.exports = function(definition, opts) {
 
   StructType.prototype.sizeFor = StructType.sizeFor = function(parent, writing) {
     var self = this
-    return Object.keys(definition)
+    function sizeOf(definition) {
+      return Object.keys(definition)
       .filter(function(prop) {
         return !definition[prop].external && !definition[prop].storage
       })
       .map(function(prop) {
-        return definition[prop].lengthFor(self, !!writing) * definition[prop].sizeFor(self, !!writing)
+        return definition[prop].lengthFor(parent, !!writing) * definition[prop].sizeFor(parent, !!writing)
       })
       .reduce(function(lhs, rhs) {
         return lhs + rhs
       }, 0)
+    }
+    var size = sizeOf(definition)
+    extensions.forEach(function(extension) {
+      if (!extension.condition.call(parent)) return
+      size += sizeOf(extension.extension)
+    })
+    return size
   }
 
   return StructType
@@ -410,6 +425,7 @@ StructStorage.prototype.sizeFor = function(parent, writing) {
     var step = path.shift(), type = definition[step]
     traverse.parent = target
     if (!path.length) {
+      if (type.prototype) target = target[step]
       size += type.lengthFor(target, writing) * type.sizeFor(target, writing)
     } else if (type instanceof StructArray) {
       target[step].forEach(function(target) {
