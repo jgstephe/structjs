@@ -60,7 +60,7 @@ var Struct = module.exports = function(definition, opts) {
         if (type.storage) continue
         self[prop] = type.read(view, offset)
         if (typeof type.$unpacked === 'function')
-          self[prop] = type.$unpacked(self[prop])
+          self[prop] = type.$unpacked.call(self, self[prop])
         if (self[prop] === undefined) delete self[prop]
         if (!type.external)
           offset += type.lengthFor(self) * type.sizeFor(self)
@@ -96,7 +96,7 @@ var Struct = module.exports = function(definition, opts) {
         var type = definition[prop]
         if (type.external || type.storage) continue
         if (type instanceof StructStorage)
-          type.write(view, offset, self[prop])
+          type.write(view, offset, self[prop], offset - start)
         offset += type.lengthFor(self, true) * type.sizeFor(self, true)
       }
       offset = start
@@ -115,7 +115,7 @@ var Struct = module.exports = function(definition, opts) {
         if (type.external || type.storage) continue
         var value = self[prop]
         if (typeof type.$packing === 'function')
-          value = type.$packing(value)
+          value = self[prop] = type.$packing.call(self, value)
         if (type instanceof StructNumber)
           type.write(view, offset, value)
         offset += type.lengthFor(self, true) * type.sizeFor(self, true)
@@ -139,10 +139,10 @@ var Struct = module.exports = function(definition, opts) {
     return self
   }
 
-  StructType.write = function write(buffer, offset, value) {
+  StructType.write = function write(buffer, offset, value, relativeOffset) {
     var parent = write.caller.parent
       , shift = this.storage ? offset + this.offsetFor(parent) : offset
-    this.setOffset(shift, parent)
+    this.setOffset(this.storage ? relativeOffset + this.offsetFor(parent) : offset, parent)
     value.pack(buffer, shift)
   }
 
@@ -235,7 +235,7 @@ StructArray.prototype.write = function write(buffer, offset, arr) {
   var parent = write.caller.parent, child
   this.setLength(this.lengthFor(parent, true), parent)
   for (var i = 0, len = this.lengthFor(parent); i < len; ++i) {
-    if (!(child = arr[i])) break
+    if ((child = arr[i]) === undefined) break
     if (typeof this.struct === 'function') {
       child.pack(buffer, offset)
       offset += child.lengthFor(parent) * child.sizeFor(parent)
@@ -256,6 +256,8 @@ StructArray.prototype.lengthFor = function(parent, writing) {
   if (this._length instanceof StructReference) {
     if (writing) return parent[this.prop].length
     return parent[this._length.prop]
+  } else if (typeof this._length === 'function') {
+    return this._length.call(parent)
   }
   return this._length
 }
@@ -395,15 +397,16 @@ StructStorage.prototype.read = function read(view, offset) {
   }(this.path.split('.'), parent._definition, parent)
 }
 
-StructStorage.prototype.write = function write(view, offset) {
+StructStorage.prototype.write = function write(view, offset, _, relativeOffset) {
   var parent = write.caller.parent, shift = 0
-  this.setOffset(offset, parent)
+  this.setOffset(relativeOffset, parent)
   !function traverse(path, definition, target) {
     var step = path.shift(), type = definition[step]
     traverse.parent = target
     if (!path.length) {
       type.setOffset(shift, target)
-      type.write(view, offset, target[step])
+      var value = target[step], target = type.prototype ? target[step] : target
+      type.write(view, offset, value, relativeOffset)
       shift += type.lengthFor(target, true) * type.sizeFor(target, true)
     } else if (type instanceof StructArray) {
       target[step].forEach(function(target) {
@@ -439,10 +442,6 @@ StructStorage.prototype.sizeFor = function(parent, writing) {
 }
 
 utils.methodsFor(StructStorage.prototype, '_offset', 'offsetFor', 'setOffset')
-
-function traversePath(argument) {
-  // body...
-}
 },{"../utils":8,"./array":2,"./reference":5}],7:[function(require,module,exports){
 var utils = require('../utils')
   , StructReference = require('./reference')
@@ -461,8 +460,8 @@ StructString.prototype.read = function read(buffer, offset) {
     , shift = this.external
       ? this.offsetFor(parent)
       : (this.storage ? offset + this.offsetFor(parent) : offset)
-  for (var i = 0, len = this.lengthFor(parent), step = this.sizeFor() === 2 ? 2 : 1; i < len; i += step) {
-    str.push(buffer[this.sizeFor() === 2 ? 'getUint16' : 'getUint8'](shift + i, this.littleEndian))
+  for (var i = 0, len = this.lengthFor(parent), step = this.sizeFor() === 2 ? 2 : 1; i < len; ++i) {
+    str.push(buffer[this.sizeFor() === 2 ? 'getUint16' : 'getUint8'](shift + i * step, this.littleEndian))
   }
   return String.fromCharCode.apply(null, str)
 }
@@ -473,9 +472,9 @@ StructString.prototype.write = function write(buffer, offset, value) {
       ? this.offsetFor(parent)
       : (this.storage ? offset + this.offsetFor(parent) : offset)
   this.setLength(this.lengthFor(parent, true), parent)
-  for (var i = 0, len = this.lengthFor(parent), step = this.sizeFor() === 2 ? 2 : 1; i < len; i += step) {
+  for (var i = 0, len = this.lengthFor(parent), step = this.sizeFor() === 2 ? 2 : 1; i < len; ++i) {
     var code = value.charCodeAt(i) || 0x00
-    buffer[this.sizeFor() === 2 ? 'setUint16' : 'setUint8'](shift + i, code, this.littleEndian)
+    buffer[this.sizeFor() === 2 ? 'setUint16' : 'setUint8'](shift + i * step, code, this.littleEndian)
   }
 }
 
@@ -507,6 +506,8 @@ exports.methodsFor = function(obj, prop, get, set) {
     if (!this[prop]) return 0
     if (this[prop] instanceof StructReference)
       return parent[this[prop].prop]
+    else if (typeof this[prop] === 'function')
+      return this[prop].call(parent)
     return this[prop]
   }
   if (!set) return

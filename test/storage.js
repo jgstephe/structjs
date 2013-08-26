@@ -89,7 +89,7 @@ suite('Storage (String)', function() {
 })
 
 suite('Storage (Nested & Condition)', function() {
-  var data = '02 03 08 04 74 62 6c 31 06 74 62 6c 32 2a'
+  var data = '02 03 08 04 74 62 6c 31 06 74 62 6c 32 08 01 02 03 04 05 06 07 08'
   
   var Table = new Struct({
     format: Struct.Uint8,
@@ -99,7 +99,8 @@ suite('Storage (Nested & Condition)', function() {
   Table.conditional(function() {
     return this.format >= 6
   }, {
-    value: Struct.Uint8
+    count: Struct.Uint8,
+    codes: Struct.Array(Struct.Uint8, Struct.Ref('count'))
   })
   
   Table.conditional(function() {
@@ -132,12 +133,15 @@ suite('Storage (Nested & Condition)', function() {
       t.subs[0].format.should.equal(4)
       t.subs[0].table.format.should.equal(4)
       t.subs[0].table.name.should.equal('tbl1')
-      t.subs[0].table.should.not.have.property('value')
+      t.subs[0].table.should.not.have.property('count')
       t.subs[1].offset.should.equal(8)
       t.subs[1].format.should.equal(6)
       t.subs[1].table.format.should.equal(6)
       t.subs[1].table.name.should.equal('tbl2')
-      t.subs[1].table.should.have.property('value', 42)
+    })
+    test('conditional', function() {
+      t.subs[1].table.should.have.property('count', 8)
+      t.subs[1].table.codes.should.include(1, 2, 3, 4, 5, 6, 7, 8)
     })
   })
   
@@ -151,44 +155,51 @@ suite('Storage (Nested & Condition)', function() {
       t.subs.shift()
       packed = new DataView(t.pack())
     
-      packed.byteLength.should.equal(8)
+      packed.byteLength.should.equal(16)
       packed.getUint8(0).should.equal(1)
     
       // Record 0
       packed.getUint8(1).should.equal(2)
       packed.getUint8(2).should.equal(6)
       utils.readString(packed, 3, 7).should.eql('tbl2')
-      packed.getUint8(7).should.equal(42)
+      packed.getUint8(7).should.equal(8)
+      for (var i = 0; i < 8; ++i)
+        packed.getUint8(8 + i).should.equal(i + 1)
     })
     
     test('additions should be re-mapped properly', function() {
       t.subs.push(new Sub({ table: new Table({
         format: 10,
         name:   'tbl3',
-        value:  44,
+        count:  2,
+        codes: [9, 10],
         delta:  2
       })}))
       packed = new DataView(t.pack())
       
-      packed.byteLength.should.equal(16)
+      packed.byteLength.should.equal(26)
       packed.getUint8(0).should.equal(2)
     
       // Record 0
       packed.getUint8(1).should.equal(3)
       
       // Record 1
-      packed.getUint8(2).should.equal(9)
+      packed.getUint8(2).should.equal(17)
       
       // Table 0
       packed.getUint8(3).should.equal(6)
       utils.readString(packed, 4, 8).should.eql('tbl2')
-      packed.getUint8(8).should.equal(42)
+      packed.getUint8(8).should.equal(8)
+      for (var i = 0; i < 8; ++i)
+        packed.getUint8(9 + i).should.equal(i + 1)
       
       // Table 1  
-      packed.getUint8(9).should.equal(10)
-      utils.readString(packed, 10, 14).should.eql('tbl3')
-      packed.getUint8(14).should.equal(44)
-      packed.getUint8(15).should.equal(2)
+      packed.getUint8(17).should.equal(10)
+      utils.readString(packed, 18, 22).should.eql('tbl3')
+      packed.getUint8(22).should.equal(2)
+      for (var i = 0; i < 2; ++i)
+        packed.getUint8(23 + i).should.equal(i + 9)
+      packed.getUint8(25).should.equal(2)
     })
   })
 })
