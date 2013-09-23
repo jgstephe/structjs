@@ -19,13 +19,13 @@ var Struct = module.exports = function(definition, opts) {
     })
     
     for (var key in values) {
-      if (key in definition) this[key] = values[key]
+      if (key in definition) this[key] = cloneValue(values[key])
     }
     
     var self = this
     extensions.forEach(function(extension) {
       for (var key in values) {
-        if (key in extension.extension) self[key] = values[key]
+        if (key in extension.extension) self[key] = cloneValue(values[key])
       }
     })
   }
@@ -115,7 +115,7 @@ var Struct = module.exports = function(definition, opts) {
         if (type.external || type.storage) continue
         var value = self[prop]
         if (typeof type.$packing === 'function')
-          value = self[prop] = type.$packing.call(self, value)
+          value = type.$packing.call(self, value)
         if (type instanceof StructNumber)
           type.write(view, offset, value)
         offset += type.lengthFor(self, true) * type.sizeFor(self, true)
@@ -171,6 +171,12 @@ var Struct = module.exports = function(definition, opts) {
     })
     return size
   }
+  
+  StructType.prototype.clone = function() {
+    var clone = new StructType(this)
+    if (typeof clone.$unpacked === 'function') clone.$unpacked()
+    return clone
+  }
 
   return StructType
 }
@@ -203,6 +209,25 @@ Struct.Reference = Struct.Ref = function(prop) {
 Struct.Storage = function(path, opts) {
   return new StructStorage(path, opts)
 }
+
+// Helper
+
+function cloneValue(val) {
+  if (val === undefined) {
+    return undefined
+  } else if (typeof val.clone === 'function') {
+    return val.clone()
+  } else if (Array.isArray(val)) {
+    return [].concat(val)
+  } else if (typeof val === 'object') {
+    var clone = {}
+    for (key in val)
+      clone[key] = cloneValue(val[key])
+    return clone
+  } else {
+    return val
+  }
+}
 },{"./types/array":2,"./types/hash":3,"./types/number":4,"./types/reference":5,"./types/storage":6,"./types/string":7,"./utils":8}],2:[function(require,module,exports){
 var utils = require('../utils')
   , StructReference = require('./reference')
@@ -234,7 +259,7 @@ StructArray.prototype.read = function read(buffer, offset) {
 StructArray.prototype.write = function write(buffer, offset, arr) {
   var parent = write.caller.parent, child
   this.setLength(this.lengthFor(parent, true), parent)
-  for (var i = 0, len = this.lengthFor(parent); i < len; ++i) {
+  for (var i = 0, len = this.lengthFor(parent, true); i < len; ++i) {
     if ((child = arr[i]) === undefined) break
     if (typeof this.struct === 'function') {
       child.pack(buffer, offset)
@@ -265,6 +290,9 @@ StructArray.prototype.lengthFor = function(parent, writing) {
 StructArray.prototype.setLength = function(value, parent) {
   if (this._length instanceof StructReference)
     parent[this._length.prop] = value
+  else if (typeof this._length === 'function') {
+    return
+  } 
   else this._length = value
 }
 },{"../utils":8,"./reference":5}],3:[function(require,module,exports){
