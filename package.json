@@ -9,7 +9,7 @@
   "scripts": {
     "test": "mocha",
     "bundle": "browserify lib/struct.js --standalone Struct > structjs.js && npm run-script minify",
-    "minify": "uglifyjs -o structjs.min.js structjs.js"
+    "minify": "uglifyjs --source-map structjs.min.map -o structjs.min.js structjs.js"
   },
   "homepage": "https://github.com/rkusa/structjs",
   "keywords": ["binary", "struct", "parse", "seralization", "deseralization", "unpack", "pack"],
